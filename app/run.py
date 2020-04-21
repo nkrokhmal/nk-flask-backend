@@ -8,8 +8,8 @@ from utils.rfcclient.client import Object, Wave, Spectrum, Coordinates, Points
 from datetime import datetime
 import json
 import numpy as np
-from flask_cors import CORS
 import io
+import os
 import base64
 
 
@@ -19,7 +19,6 @@ password = 'kloppolk_2018'
 sftp_client = SftpClient(host=host, username=username, password=password)
 
 app = Flask(__name__)
-CORS(app)
 api = Api(app=app, version='0.1', title='AlisaProject API', description='API for building model')
 namespace = api.namespace('api', description='Main APIs')
 
@@ -112,8 +111,6 @@ class Scatterer(Resource):
             coordinates = Coordinates(x=np.array([0.0]), y=np.array([0.0]), z=np.arange(from_coordinate, to_coordinate, step))
 
         local_path = '/opt/download/{}'.format(model_name)
-        print(local_path)
-        print(model_path)
         sftp_client.download_file_local(local_path, model_path)
 
         points = Points(coordinates, obj, wave, spectrum, local_path)
@@ -124,6 +121,7 @@ class Scatterer(Resource):
         fig.savefig(buffer, format='png')
         buffer.seek(0)
         result_image = base64.b64encode(buffer.getvalue())
+        os.remove(local_path)
         return result_image.decode('ascii')
 
 
