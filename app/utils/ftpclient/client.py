@@ -15,6 +15,9 @@ class SftpClient():
     def upload_file(self, local_path, remote_path):
         self.sftp_client.put(localpath=local_path, remotepath=self.upload_path + remote_path)
 
+    def upload_file_remote(self, local_path, remote_path):
+        self.sftp_client.put(localpath=local_path, remotepath=remote_path)
+
     def upload_file_fo(self, file, remote_path):
         self.sftp_client.putfo(file, remotepath=self.upload_path + remote_path)
 
@@ -23,4 +26,7 @@ class SftpClient():
         self.sftp_client.getfo(self.upload_path + remote_path, file)
         file.seek(0)
         return file
+
+    def download_file_local(self, local_path, remote_path):
+        self.sftp_client.get(self.upload_path + remote_path, localpath=local_path)
 

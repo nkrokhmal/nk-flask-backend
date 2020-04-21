@@ -4,8 +4,14 @@ from flask_restplus import reqparse
 from flask_restx import Api, Resource, swagger
 from utils.ftpclient.client import SftpClient
 from utils.postgresclient.client import PostgresClient
+from utils.rfcclient.client import Object, Wave, Spectrum, Coordinates, Points
 from datetime import datetime
 import json
+import numpy as np
+from flask_cors import CORS
+import io
+import base64
+
 
 host = '35.228.186.127'
 username = 'nkrokhmal'
@@ -13,7 +19,7 @@ password = 'kloppolk_2018'
 sftp_client = SftpClient(host=host, username=username, password=password)
 
 app = Flask(__name__)
-
+CORS(app)
 api = Api(app=app, version='0.1', title='AlisaProject API', description='API for building model')
 namespace = api.namespace('api', description='Main APIs')
 
@@ -50,11 +56,75 @@ class ModelTest(Resource):
         cur = psql_client.client.cursor()
         req = 'INSERT INTO "{}" (model_name, model_path, pressure_distribution_path, creation_time, params, status_id) VALUES (%s, %s, %s, %s, %s, %s)' \
             .format('Models')
-        values = (model_name, model_path, distribution_path, datetime.utcnow(), params, 1)
+        values = (model_name, 'http://' + host + '/' + model_path, 'http://' + host + '/' + distribution_path, datetime.utcnow(), params, 1)
         cur.execute(req, values)
         psql_client.client.commit()
         cur.close()
         return model_name
+
+
+@namespace.route('/scatterer/', methods=['POST'])
+class Scatterer(Resource):
+    parser = reqparse.RequestParser()
+    parser.add_argument('Radius', type=float, location='form', required=False)
+    parser.add_argument('LongitudinalSpeed', type=float, location='form', required=False)
+    parser.add_argument('TransverseSpeed', type=float, location='form', required=False)
+    parser.add_argument('DensityOfScatterer', type=float, location='form', required=False)
+    parser.add_argument('Frequency', type=float, location='form', required=False)
+    parser.add_argument('SpeedOfSound', type=float, location='form', required=False)
+    parser.add_argument('DensityOfMedium', type=float, location='form', required=False)
+    parser.add_argument('Dx', type=float, location='form', required=False)
+    parser.add_argument('Type', type=str, location='form', required=False)
+    parser.add_argument('From', type=float, location='form', required=False)
+    parser.add_argument('To', type=float, location='form', required=False)
+    parser.add_argument('Step', type=float, location='form', required=False)
+    parser.add_argument('ModelPath', type=str, location='form', required=False)
+    parser.add_argument('ModelName', type=str, location='form', required=False)
+
+    @api.expect(parser=parser)
+    @api.doc(parser=parser)
+    def post(self):
+        args = self.parser.parse_args()
+        radius = args['Radius']
+        longitudinal = args['LongitudinalSpeed']
+        transverse = args['TransverseSpeed']
+        density_of_scatterer = args['DensityOfScatterer']
+        frequency = args['Frequency']
+        speed_of_sound = args['SpeedOfSound']
+        density_of_medium = args['DensityOfMedium']
+        dx = args['Dx']
+        params_type = args['Type']
+        from_coordinate = args['From']
+        to_coordinate = args['To']
+        step = args['Step']
+        model_path = args['ModelPath']
+        model_name = args['ModelName']
+
+        obj = Object(a=radius, rho=density_of_scatterer, c_l=longitudinal, c_t=transverse)
+        wave = Wave(f=frequency, c=speed_of_sound, rho=density_of_medium)
+        spectrum = Spectrum(dx=dx)
+
+        if params_type == 'X':
+            coordinates = Coordinates(x=np.arange(from_coordinate, to_coordinate, step), y=np.array([0.0]), z=np.array([0.0]))
+        elif params_type == 'Y':
+            coordinates = Coordinates(x=np.array([0.0]), y=np.arange(from_coordinate, to_coordinate, step), z=np.array([0.0]))
+        else:
+            coordinates = Coordinates(x=np.array([0.0]), y=np.array([0.0]), z=np.arange(from_coordinate, to_coordinate, step))
+
+        local_path = '/opt/download/{}'.format(model_name)
+        print(local_path)
+        print(model_path)
+        sftp_client.download_file_local(local_path, model_path)
+
+        points = Points(coordinates, obj, wave, spectrum, local_path)
+        force, force_x, force_y, force_z, scat_p = points.calculate_force()
+        fig = points.build_rad_force(force)
+
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format='png')
+        buffer.seek(0)
+        result_image = base64.b64encode(buffer.getvalue())
+        return result_image.decode('ascii')
 
 
 @namespace.route('/models/')
@@ -77,6 +147,19 @@ class SaveModel(Resource):
         result = self.get_data()
         return json.dumps(result, default=self.myconverter)
 
+@namespace.route('/model/<model_id>')
+class DeleteModel(Resource):
+    def delete(self, model_id):
+        print(model_id)
+        cursor = psql_client.client.cursor()
+        req = 'UPDATE "{}" SET "status_id" = 2 WHERE "id" = {}'.format('Models', model_id)
+        print(req)
+        cursor.execute(req)
+        updated_rows = cursor.rowcount
+        print(updated_rows)
+        psql_client.client.commit()
+        cursor.close()
+
 
 
 @namespace.route('/')
@@ -93,4 +176,4 @@ class Test(Resource):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=6666, threaded=True, host='0.0.0.0')
+    app.run(debug=True, port=8080, threaded=True, host='0.0.0.0')
