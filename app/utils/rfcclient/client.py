@@ -302,11 +302,11 @@ class Points:
             force[glob_n] = [force_x, force_y, force_z]
         return force, force_x, force_y, force_z, scat_p
 
-    def build_rad_force(self, force):
+    def build_rad_force(self, force, type=2):
         fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(self.points[:, 2] * 1000, 0 * force[:, 0])
-        ax.plot(self.points[:, 2] * 1000, force[:, 1])
-        ax.plot(self.points[:, 2] * 1000, force[:, 2])
+        ax.plot(self.points[:, type] * 1000, force[:, 0])
+        ax.plot(self.points[:, type] * 1000, force[:, 1])
+        ax.plot(self.points[:, type] * 1000, force[:, 2])
 
         ax.legend(['F_x', 'F_y', 'F_z'], loc='upper right', shadow=True)
         ax.set_xlabel('z, mm')

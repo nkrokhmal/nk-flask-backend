@@ -9,7 +9,7 @@ RUN chmod -R 777 /opt/
 RUN mkdir -p /opt/download
 RUN chmod -R 777 /opt/download
 
-EXPOSE 6666
+EXPOSE 8818
 
 cmd ["python", "run.py"]
 

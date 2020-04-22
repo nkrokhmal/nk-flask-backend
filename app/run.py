@@ -11,6 +11,8 @@ import numpy as np
 import io
 import os
 import base64
+from flask_cors import CORS
+import time
 
 
 host = '35.228.186.127'
@@ -19,6 +21,8 @@ password = 'kloppolk_2018'
 sftp_client = SftpClient(host=host, username=username, password=password)
 
 app = Flask(__name__)
+CORS(app)
+
 api = Api(app=app, version='0.1', title='AlisaProject API', description='API for building model')
 namespace = api.namespace('api', description='Main APIs')
 
@@ -97,7 +101,13 @@ class Scatterer(Resource):
         to_coordinate = args['To']
         step = args['Step']
         model_path = args['ModelPath']
-        model_name = args['ModelName']
+        model_id = args['ModelName']
+
+        cur_time = time.strftime('%Y%m%d%H%M%S')
+        force_dict_name = '{}_{}.npy'.format(model_id, cur_time)
+        force_image_name = '{}_{}.png'.format(model_id, cur_time)
+        force_dict_path = '/opt/download/{}'.format(force_dict_name)
+        force_image_path = '/opt/download/{}'.format(force_image_name)
 
         obj = Object(a=radius, rho=density_of_scatterer, c_l=longitudinal, c_t=transverse)
         wave = Wave(f=frequency, c=speed_of_sound, rho=density_of_medium)
@@ -110,18 +120,46 @@ class Scatterer(Resource):
         else:
             coordinates = Coordinates(x=np.array([0.0]), y=np.array([0.0]), z=np.arange(from_coordinate, to_coordinate, step))
 
-        local_path = '/opt/download/{}'.format(model_name)
+        local_path = '/opt/download/{}.mat'.format(model_id)
         sftp_client.download_file_local(local_path, model_path)
 
         points = Points(coordinates, obj, wave, spectrum, local_path)
         force, force_x, force_y, force_z, scat_p = points.calculate_force()
         fig = points.build_rad_force(force)
+        fig.savefig(force_image_path)
 
         buffer = io.BytesIO()
         fig.savefig(buffer, format='png')
         buffer.seek(0)
         result_image = base64.b64encode(buffer.getvalue())
         os.remove(local_path)
+
+        '''add data to ftp server'''
+        force_dict = {
+            'force_x': force_x,
+            'force_y': force_y,
+            'force_z': force_z,
+            'force': force
+        }
+        np.save('/opt/download/{}_{}'.format(model_id, cur_time), force)
+
+        print(force_dict_path)
+        sftp_client.upload_file(force_dict_path, 'force/{}'.format(force_dict_name))
+        print(force_image_path)
+        sftp_client.upload_file(force_image_path, 'force_image/{}'.format(force_image_name))
+
+        '''add data to postgresql'''
+        cur = psql_client.client.cursor()
+        req = 'INSERT INTO "{}" (x_force, y_force, z_force, force_data_path, force_image_path, model_id) VALUES (%s, %s, %s, %s, %s, %s)' \
+            .format('ModelResults')
+        force_data_path = 'http://' + host + '/' + 'force/{}'.format(force_dict_name)
+        force_image_path = 'http://' + host + '/' + 'force_image/{}'.format(force_image_name)
+        values = (force_x, force_y, force_z, force_data_path, force_image_path, model_id)
+        cur.execute(req, values)
+        psql_client.client.commit()
+        cur.close()
+
+
         return result_image.decode('ascii')
 
 
@@ -174,4 +212,4 @@ class Test(Resource):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8080, threaded=True, host='0.0.0.0')
+    app.run(debug=True, port=8818, threaded=True, host='0.0.0.0')
